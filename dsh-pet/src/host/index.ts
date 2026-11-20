@@ -16,6 +16,7 @@ import { registerSessionWatch } from './plugin/session-watch.ts';
 import { createDesktopHelper } from './plugin/desktop-helper.ts';
 import { createBalancePoll } from './plugin/balance-poll.ts';
 import { createChatMemory } from './plugin/chat-memory.ts';
+import { createSocialFeature } from './social/index.ts';
 import { generateChat } from './chat.ts';
 import { ensurePowerContextMemory } from './memory/powercontext.ts';
 import { createSessionNotify } from './plugin/session-notify.ts';
@@ -74,6 +75,7 @@ export function apply(ctx: any): void {
   const { reportDownload, stopDownloadSlotTimer } = downloadReport;
   const petLookup = createPetLookup({ state, configPaths });
   const { lock, sleep, sleepRefusalText } = petLookup;
+  createSocialFeature({ ctx, configPaths, userRoot, log, state, menuRegistry: setup.menuRegistry, lock, sleep });
   const sessionNotify = createSessionNotify({ ctx, publishWorkStatus, state, workStatus });
   const {
     pushNotifyFrame,

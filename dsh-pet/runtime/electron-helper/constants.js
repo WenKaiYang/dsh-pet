@@ -177,6 +177,7 @@ window.__dshPetDebug = {
   lastBalanceOk: null,
   menuOpen: false,
   chatOpen: false,
+  socialOpen: false,
   bootAt: Date.now(),
 };
 window.addEventListener('error', (event) => {

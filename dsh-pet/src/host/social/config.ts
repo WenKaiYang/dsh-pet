@@ -14,12 +14,15 @@ export const DEFAULT_SOCIAL_CONFIG: SocialConfig = {
   turnGapMs: 1200,
   historyMessages: 6,
   maxTextChars: 80,
+  rounds: 1,
+  showTimeline: true,
+  allowOwnerJoin: true,
 };
 
 /** 读取一个整数字段；非法值回默认，不用夹取掩盖配置错误。 */
 function integerField(
   raw: Record<string, unknown>,
-  key: 'maxTurns' | 'turnGapMs' | 'historyMessages' | 'maxTextChars',
+  key: 'maxTurns' | 'turnGapMs' | 'historyMessages' | 'maxTextChars' | 'rounds',
   min: number,
   max: number,
   file: string,
@@ -36,6 +39,24 @@ function integerField(
     return DEFAULT_SOCIAL_CONFIG.maxTurns;
   }
   return value;
+}
+
+/** 成员列表不设置长度上限；非法项单独剔除并去重，缺失才走旧双人模式。 */
+function participantField(raw: Record<string, unknown>, file: string, log?: LoggerLike): readonly string[] | undefined {
+  if (raw.participantIds === undefined) return undefined;
+  if (!Array.isArray(raw.participantIds)) {
+    log?.warn?.(`[dsh-pet] 社交配置 participantIds 必须是数组，已回旧双人模式：${file}`);
+    return undefined;
+  }
+  const valid = raw.participantIds.filter((id): id is string => typeof id === 'string' && id.trim() !== '');
+  if (valid.length !== raw.participantIds.length) {
+    log?.warn?.(`[dsh-pet] 社交配置 participantIds 含非法成员 id，已剔除：${file}`);
+  }
+  return [...new Set(valid.map((id) => id.trim()))];
+}
+
+function booleanField(raw: Record<string, unknown>, key: 'showTimeline' | 'allowOwnerJoin'): boolean {
+  return raw[key] === undefined ? DEFAULT_SOCIAL_CONFIG[key] : raw[key] === true;
 }
 
 /** 读取社交配置；文件不存在 = 全默认，JSON 或根结构损坏 = 全默认。 */
@@ -71,5 +92,9 @@ export function readSocialConfig(file: string, log?: LoggerLike): SocialConfig {
     turnGapMs: integerField(value, 'turnGapMs', 500, 5000, file, log),
     historyMessages: integerField(value, 'historyMessages', 0, 20, file, log),
     maxTextChars: integerField(value, 'maxTextChars', 20, 200, file, log),
+    participantIds: participantField(value, file, log),
+    rounds: integerField(value, 'rounds', 1, 8, file, log),
+    showTimeline: booleanField(value, 'showTimeline'),
+    allowOwnerJoin: booleanField(value, 'allowOwnerJoin'),
   };
 }

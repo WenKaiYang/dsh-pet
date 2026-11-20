@@ -12,6 +12,7 @@ import { SocialDirector, socialParticipantOf } from './director.ts';
 import { readSocialConfig } from './config.ts';
 import { generateSocialTurn } from './generate.ts';
 import { SocialMemoryStore } from './memory.ts';
+import { createSocialRoute } from './route.ts';
 import { createSocialMenu } from './menu.ts';
 import type { SocialParticipant } from './types.ts';
 
@@ -22,8 +23,14 @@ export type SocialFeatureInput = { ctx: HostContext } & Pick<
 > &
   Pick<PetLookup, 'lock' | 'sleep'>;
 
-/** 创建社交功能；返回 director 便于宿主诊断与单元测试。 */
-export function createSocialFeature(deps: SocialFeatureInput): SocialDirector {
+/** 社交功能产物：导演负责业务，路由与宿主原有处理器组合。 */
+export interface SocialFeature {
+  director: SocialDirector;
+  handleRoute: ReturnType<typeof createSocialRoute>;
+}
+
+/** 创建社交功能。 */
+export function createSocialFeature(deps: SocialFeatureInput): SocialFeature {
   const { ctx, configPaths, userRoot, log, state, menuRegistry, lock, sleep } = deps;
   const configFile = join(userRoot, 'social-config.json');
   const memory = new SocialMemoryStore({ file: join(userRoot, 'social-memory.json'), log });
@@ -63,7 +70,13 @@ export function createSocialFeature(deps: SocialFeatureInput): SocialDirector {
     state,
     log,
   });
-  const menu = createSocialMenu({ menuRegistry, state, director, log });
+  const menu = createSocialMenu({
+    menuRegistry,
+    state,
+    director,
+    showTimeline: () => readSocialConfig(configFile, log).showTimeline,
+    log,
+  });
 
   ctx.effect(() => {
     // 启用状态在插件加载时决定是否注册菜单；每个会话的参数仍在 start 时重新读取。
@@ -73,5 +86,5 @@ export function createSocialFeature(deps: SocialFeatureInput): SocialDirector {
       void menu.stop();
     };
   }, 'dsh-pet: social interactions');
-  return director;
+  return { director, handleRoute: createSocialRoute(director) };
 }

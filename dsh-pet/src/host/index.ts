@@ -75,7 +75,16 @@ export function apply(ctx: any): void {
   const { reportDownload, stopDownloadSlotTimer } = downloadReport;
   const petLookup = createPetLookup({ state, configPaths });
   const { lock, sleep, sleepRefusalText } = petLookup;
-  createSocialFeature({ ctx, configPaths, userRoot, log, state, menuRegistry: setup.menuRegistry, lock, sleep });
+  const social = createSocialFeature({
+    ctx,
+    configPaths,
+    userRoot,
+    log,
+    state,
+    menuRegistry: setup.menuRegistry,
+    lock,
+    sleep,
+  });
   const sessionNotify = createSessionNotify({ ctx, publishWorkStatus, state, workStatus });
   const {
     pushNotifyFrame,
@@ -208,6 +217,9 @@ export function apply(ctx: any): void {
     memory: { list: listChatMemoryProviders },
   };
   const httpRoute = createHttpRoute(deps);
+  const petRoute = httpRoute.handlePetRoute;
+  httpRoute.handlePetRoute = async (rawUrl, method, body, signal) =>
+    (await social.handleRoute(rawUrl, method, body)) ?? petRoute(rawUrl, method, body, signal);
   registerHttpRoute(ctx, httpRoute.handlePetRoute);
 
   registerSessionWatch({

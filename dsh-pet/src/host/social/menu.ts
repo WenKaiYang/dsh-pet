@@ -2,28 +2,26 @@
  * 社交右键菜单：复用第三方 MenuRegistry，一个 owner、一个消费者，卸载时唤醒并退出轮询。
  * @module dsh-pet/src/host/social/menu
  */
+import { SOCIAL_MENU_OWNER, SOCIAL_MENU_START, SOCIAL_MENU_STOP, SOCIAL_MENU_VIEW } from '../../shared/social.ts';
 import { MENU_WAIT_MAX_MS, type MenuRegistry } from '../menu.ts';
 import type { LoggerLike } from '../log-file.ts';
 import type { PollStateStore } from '../state.ts';
 import type { SocialDirector } from './director.ts';
 
-/** 独立 owner，避免和其他第三方菜单互相覆盖或抢事件。 */
-export const SOCIAL_MENU_OWNER = 'pet-social';
-/** 菜单文案保持短于注册表上限。 */
-export const SOCIAL_MENU_START = '和大家一起聊聊';
-export const SOCIAL_MENU_STOP = '结束互动';
+export { SOCIAL_MENU_OWNER, SOCIAL_MENU_START, SOCIAL_MENU_STOP, SOCIAL_MENU_VIEW } from '../../shared/social.ts';
 
 /** 菜单循环需要的最小依赖。 */
 export interface SocialMenuDeps {
   readonly menuRegistry: MenuRegistry;
   readonly state: Pick<PollStateStore, 'writeSection'>;
   readonly director: Pick<SocialDirector, 'start' | 'cancel'>;
+  readonly showTimeline?: () => boolean;
   readonly log: LoggerLike;
 }
 
 /** 创建菜单生命周期；start 与 stop 都可重复调用。 */
 export function createSocialMenu(deps: SocialMenuDeps) {
-  const { menuRegistry, state, director, log } = deps;
+  const { menuRegistry, state, director, showTimeline = () => true, log } = deps;
   let disposed = false;
   let started = false;
   let loop: Promise<void> | null = null;
@@ -39,6 +37,9 @@ export function createSocialMenu(deps: SocialMenuDeps) {
           log.warn?.(`[dsh-pet] 社交菜单启动失败：${error instanceof Error ? error.message : String(error)}`);
         });
       }
+      if (events[SOCIAL_MENU_VIEW]) {
+        // 网页菜单由 client/social 当场打开面板，HTTP 事件只供桌面端消费。
+      }
       if (events[SOCIAL_MENU_STOP]) director.cancel();
     }
   };
@@ -49,7 +50,7 @@ export function createSocialMenu(deps: SocialMenuDeps) {
       if (disposed || started) return;
       const registered = menuRegistry.register({
         owner: SOCIAL_MENU_OWNER,
-        labels: [SOCIAL_MENU_START, SOCIAL_MENU_STOP],
+        labels: [SOCIAL_MENU_START, ...(showTimeline() ? [SOCIAL_MENU_VIEW] : []), SOCIAL_MENU_STOP],
         target: 'both',
       });
       if (!registered.ok) {

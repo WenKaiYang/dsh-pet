@@ -29,6 +29,10 @@ test('合法配置逐字段读取', () => {
     turnGapMs: 800,
     historyMessages: 4,
     maxTextChars: 60,
+    participantIds: undefined,
+    rounds: 1,
+    showTimeline: true,
+    allowOwnerJoin: true,
   });
 });
 
@@ -50,4 +54,23 @@ test('损坏 JSON 与不支持的版本均安全关闭', () => {
   assert.equal(readSocialConfig(file).enabled, false);
   writeFileSync(file, JSON.stringify({ version: 2, enabled: true }));
   assert.equal(readSocialConfig(file).enabled, false);
+});
+
+test('群聊成员去重且不设置人数上限，旧配置仍走双人模式', () => {
+  const participantIds = Array.from({ length: 50 }, (_, index) => `pet-${index}`);
+  writeFileSync(
+    file,
+    JSON.stringify({
+      enabled: true,
+      participantIds: [...participantIds, 'pet-1', ''],
+      rounds: 3,
+      showTimeline: false,
+      allowOwnerJoin: false,
+    }),
+  );
+  const conf = readSocialConfig(file);
+  assert.deepEqual(conf.participantIds, participantIds);
+  assert.equal(conf.rounds, 3);
+  assert.equal(conf.showTimeline, false);
+  assert.equal(conf.allowOwnerJoin, false);
 });

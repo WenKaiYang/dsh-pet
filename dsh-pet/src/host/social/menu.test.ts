@@ -50,7 +50,7 @@ test('重复 start 不创建第二个消费者，stop 幂等', async () => {
   });
   menu.start();
   menu.start();
-  assert.equal(registry.snapshot().length, 2);
+  assert.equal(registry.snapshot().length, 3);
   await menu.stop();
   await menu.stop();
   assert.equal(registry.snapshot().length, 0);

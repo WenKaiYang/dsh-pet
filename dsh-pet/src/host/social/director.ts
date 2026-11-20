@@ -11,6 +11,9 @@ import type { SleepStore } from '../sleep.ts';
 import type { PollStateStore } from '../state.ts';
 import { isDisplayed, pickVoiceSurface } from '../surface.ts';
 import { socialGroupKey } from './memory.ts';
+import { selectTopicParticipants } from './match.ts';
+import { isRepeatedSocialText, nextFollowUp, openTopicSnapshot, selectTopic, stageForTopic } from './topics.ts';
+import { resolveSocialAction } from './action.ts';
 import type {
   SocialConfig,
   SocialMessage,
@@ -18,6 +21,8 @@ import type {
   SocialSessionSnapshot,
   SocialSessionStatus,
   SocialSessionSummary,
+  SocialTopicCard,
+  SocialTopicSnapshot,
 } from './types.ts';
 
 /** 一场运行中的会话；取消只打断等待，不假设底层模型流可中止。 */
@@ -26,6 +31,8 @@ interface ActiveSession {
   readonly participants: readonly SocialParticipant[];
   readonly config: SocialConfig;
   readonly groupKey?: string;
+  readonly topicCard?: SocialTopicCard;
+  topic?: SocialTopicSnapshot;
   readonly locks: Map<string, string>;
   readonly cancelPromise: Promise<void>;
   readonly startedAt: number;
@@ -63,6 +70,7 @@ export type SocialTurnGenerator = (input: {
   participants: readonly SocialParticipant[];
   messages: readonly SocialMessage[];
   maxTextChars: number;
+  topic?: SocialTopicSnapshot;
 }) => Promise<ChatGenerateResult>;
 
 /** 会话状态机依赖。 */
@@ -177,18 +185,25 @@ export class SocialDirector {
       this.notice(initiatorId, '我现在不方便聊天哦。');
       return { ok: false, reason: 'unavailable' };
     }
-    const selected = this.selectParticipants(initiator, participants, config);
+    const eligible = participants.filter((pet) => this.eligible(pet));
+    const topic = config.topics && config.topics.length > 0 ? selectTopic(config.topics, eligible) : undefined;
+    const selected = topic
+      ? selectTopicParticipants({ initiator, eligible, config, topic, recentCounts: {} })
+      : this.selectParticipants(initiator, participants, config);
     if (selected.length < 2) {
       this.notice(initiatorId, '现在没有能陪我聊天的伙伴。');
       return { ok: false, reason: 'unavailable' };
     }
     const cancel = deferred();
     const change = deferred();
+    const hasGroupContext = Boolean(config.participantIds || topic);
     const session: ActiveSession = {
       id: `social-${this.now().toString(36)}-${(++this.seq).toString(36)}`,
       participants: selected,
       config,
-      groupKey: config.participantIds ? socialGroupKey(selected.map((pet) => pet.id)) : undefined,
+      groupKey: hasGroupContext ? socialGroupKey(selected.map((pet) => pet.id)) : undefined,
+      topicCard: topic,
+      topic: topic ? openTopicSnapshot(topic) : undefined,
       locks: new Map(),
       cancelPromise: cancel.promise,
       notifyCancel: cancel.resolve,
@@ -357,6 +372,7 @@ export class SocialDirector {
       currentSpeakerId: session.currentSpeakerId,
       ownerJoined: session.ownerJoined,
       allowOwnerJoin: session.config.allowOwnerJoin,
+      topic: session.topic,
     };
   }
 
@@ -405,6 +421,7 @@ export class SocialDirector {
         }
         if (session.ownerQueue.length === 0 && turn >= totalTurns) break;
         if (!this.renewLocks(session)) break;
+        this.refreshTopic(session, totalTurns);
         const ownerMessage = session.ownerQueue.shift();
         const speakerIndex = ownerMessage
           ? (turn + session.ownerReplySeq++) % session.participants.length
@@ -419,6 +436,7 @@ export class SocialDirector {
           participants: session.participants,
           messages: session.context,
           maxTextChars: session.config.maxTextChars,
+          topic: session.topic,
         });
         if (!this.valid(session)) break;
         // 主人已退出时，正在生成的回应不再演出，也不写入记忆。
@@ -438,6 +456,10 @@ export class SocialDirector {
           this.deps.log.warn?.(`[dsh-pet] 社交生成结果为空 pet=${speaker.id}`);
           break;
         }
+        const previousPetTexts = session.messages
+          .filter((message) => message.speakerType !== 'owner')
+          .map((message) => message.text);
+        const repeated = isRepeatedSocialText(text, previousPetTexts);
         const message: SocialMessage = {
           sessionId: session.id,
           messageId: `${session.id}-m${++session.messageSeq}`,
@@ -451,6 +473,7 @@ export class SocialDirector {
           ts: this.now(),
           groupKey: session.groupKey,
           participantIds: session.groupKey ? session.participants.map((pet) => pet.id) : undefined,
+          topic: session.topic,
         };
         const voiceTo = this.deps.voiceConfigured() ? pickVoiceSurface(speaker.display) : null;
         this.deps.state.writePet(speaker.id, 'say', {
@@ -458,6 +481,8 @@ export class SocialDirector {
           duration: 10_000,
           ...(voiceTo ? { voiceTo } : {}),
         });
+        const actionName = resolveSocialAction(text, (speaker.conf as Record<string, unknown>).animations);
+        if (actionName) this.deps.state.writePet(speaker.id, 'anim', { name: actionName });
         session.context.push(message);
         session.messages.push(message);
         await this.deps.memory.append(message);
@@ -468,6 +493,7 @@ export class SocialDirector {
         }
         session.currentSpeakerId = undefined;
         this.touch(session);
+        if (repeated && !ownerMessage && session.ownerQueue.length === 0) break;
         await Promise.race([(this.deps.delay ?? defaultDelay)(session.config.turnGapMs), session.cancelPromise]);
       }
       if (session.status === 'active') session.status = 'finished';
@@ -493,6 +519,34 @@ export class SocialDirector {
       this.touch(session);
       if (this.session === session) this.session = null;
     }
+  }
+
+  /** 按当前消息数、最近台词和预算推进话题阶段；话题卡只在启动时固化。 */
+  private refreshTopic(session: ActiveSession, totalTurns: number): void {
+    const card = session.topicCard;
+    const topic = session.topic;
+    if (!card || !topic) return;
+    const recentTexts = session.messages
+      .filter((message) => message.speakerType !== 'owner')
+      .map((message) => message.text);
+    const stage = stageForTopic({
+      messageCount: session.messages.length,
+      totalTurns,
+      latestText: recentTexts[recentTexts.length - 1] ?? '',
+      recentTexts,
+      usedFollowUps: topic.usedFollowUps,
+      conflictKeywords: card.conflictKeywords,
+    });
+    let currentFollowUp = topic.currentFollowUp;
+    let usedFollowUps = topic.usedFollowUps;
+    if (!currentFollowUp) {
+      const followUp = nextFollowUp(card, usedFollowUps);
+      if (followUp) {
+        currentFollowUp = followUp;
+        usedFollowUps = [...usedFollowUps, followUp];
+      }
+    }
+    session.topic = { ...topic, stage, currentFollowUp, usedFollowUps };
   }
 
   /** 续期同时验证持有关系；任一失败即取消整场。 */

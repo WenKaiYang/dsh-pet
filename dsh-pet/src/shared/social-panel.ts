@@ -14,6 +14,15 @@ export interface SocialTimelineMessage {
   responseStatus?: 'pending' | 'answered' | 'unanswered';
 }
 
+export interface SocialTopicSnapshot {
+  topicId: string;
+  title: string;
+  opener: string;
+  stage: 'opening' | 'expansion' | 'followup' | 'conflict' | 'closing';
+  usedFollowUps: string[];
+  currentFollowUp?: string;
+}
+
 export interface SocialTimelineSession {
   id: string;
   status: 'active' | 'finished' | 'cancelled' | 'failed';
@@ -26,6 +35,7 @@ export interface SocialTimelineSession {
   ownerJoined: boolean;
   allowOwnerJoin: boolean;
   currentSpeakerId?: string;
+  topic?: SocialTopicSnapshot;
 }
 
 export interface SocialDialogOptions {
@@ -65,6 +75,14 @@ function node<K extends keyof HTMLElementTagNameMap>(
   if (text !== undefined) element.textContent = text;
   return element;
 }
+
+const TOPIC_STAGE_TEXT: Record<SocialTopicSnapshot['stage'], string> = {
+  opening: '开场',
+  expansion: '展开',
+  followup: '追问',
+  conflict: '分歧',
+  closing: '收尾',
+};
 
 function reasonText(reason: string): string {
   const labels: Record<string, string> = {
@@ -163,6 +181,9 @@ export function mountSocialDialog(options: SocialDialogOptions): SocialDialogMou
     meta.textContent = snapshot
       ? `${snapshot.status === 'active' ? '对话中' : snapshot.status === 'finished' ? '已结束' : snapshot.status === 'cancelled' ? '已取消' : '已失败'} · ${snapshot.messageCount} 条 · ${snapshot.participantIds.map((id) => snapshot?.participantNames[id] || id).join('、')}`
       : '';
+    if (snapshot?.topic) {
+      meta.textContent += ` · 话题：${snapshot.topic.title}（${TOPIC_STAGE_TEXT[snapshot.topic.stage]}）`;
+    }
     if (snapshot?.currentSpeakerId) {
       meta.textContent += ` · 正在发言：${snapshot.participantNames[snapshot.currentSpeakerId] || snapshot.currentSpeakerId}`;
     }

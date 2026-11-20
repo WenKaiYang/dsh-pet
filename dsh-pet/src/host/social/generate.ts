@@ -6,7 +6,7 @@
 import { generateChat, type ChatGenerateResult, type ChatMemoryMessage } from '../chat.ts';
 import { configuredModel } from '../model-selection.ts';
 import { composeSystemPrompt, petPersona } from '../persona.ts';
-import type { SocialMessage, SocialParticipant } from './types.ts';
+import type { SocialMessage, SocialParticipant, SocialTopicSnapshot } from './types.ts';
 
 /** 生成入口的依赖与上下文。 */
 export interface SocialTurnInput {
@@ -15,6 +15,7 @@ export interface SocialTurnInput {
   readonly participants: readonly SocialParticipant[];
   readonly messages: readonly SocialMessage[];
   readonly maxTextChars: number;
+  readonly topic?: SocialTopicSnapshot;
   readonly now?: Date;
   /** 测试替身；生产缺省就是上游 generateChat。 */
   readonly generate?: typeof generateChat;
@@ -49,6 +50,14 @@ export function socialHistoryFor(
   return history;
 }
 
+const STAGE_TEXT: Record<SocialTopicSnapshot['stage'], string> = {
+  opening: '开场',
+  expansion: '展开',
+  followup: '追问',
+  conflict: '分歧',
+  closing: '收尾',
+};
+
 /** 去掉模型可能带回的格式包装，并按 Unicode 字符数截断。 */
 export function cleanSocialText(raw: string, maxChars: number): string {
   const text = raw
@@ -63,15 +72,20 @@ export function cleanSocialText(raw: string, maxChars: number): string {
 
 /** 生成当前角色的一句社交台词。 */
 export async function generateSocialTurn(input: SocialTurnInput): Promise<ChatGenerateResult> {
-  const { speaker, participants, messages, maxTextChars } = input;
+  const { speaker, participants, messages, maxTextChars, topic } = input;
   const prompt = petPersona(speaker.conf, speaker.pet);
   const base = composeSystemPrompt({ prompt, name: speaker.name, id: speaker.id, now: input.now ?? new Date() });
   const others = participants
     .filter((pet) => pet.id !== speaker.id)
     .map((pet) => pet.name)
     .join('、');
+  const topicBlock = topic
+    ? `\n【当前话题】${topic.title}；阶段：${STAGE_TEXT[topic.stage]}。开场白：${topic.opener}。` +
+      (topic.currentFollowUp ? ` 可围绕追问“${topic.currentFollowUp}”继续。` : '')
+    : '';
   const system =
     base +
+    topicBlock +
     `\n【桌宠群聊】你是当前发言者，其他桌宠成员是“${others || '暂无'}”。` +
     '历史里带名字的话来自其他成员，标记为“主人”的话来自主人；不带名字且由你说过的话属于你的上一句。' +
     '保持自己的身份、性格和说话习惯，回应最近的发言。不要把自己的身份换成其他宠物或主人。' +

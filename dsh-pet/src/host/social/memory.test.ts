@@ -82,6 +82,22 @@ test('群聊只读取相同成员组合，历史保留成员快照', async () =>
   assert.deepEqual(snapshot?.participantNames, { a: '薄荷' });
 });
 
+test('历史会话保留最新话题快照', async () => {
+  const topicFile = join(dir, 'topic.json');
+  const store = new SocialMemoryStore({ file: topicFile });
+  const topic = {
+    topicId: 'food',
+    title: '周末吃什么',
+    opener: '想吃点什么？',
+    stage: 'expansion' as const,
+    usedFollowUps: [],
+  };
+  await store.append({ ...message('topic-session', 'a', undefined, 1), topic });
+  const snapshot = await store.session('topic-session');
+  assert.deepEqual(snapshot?.topic, topic);
+  assert.deepEqual((await store.listSessions())[0]?.topic, topic);
+});
+
 test('主人回应状态可更新，历史把遗留等待状态降级为未回应', async () => {
   const ownerFile = join(dir, 'owner.json');
   const store = new SocialMemoryStore({ file: ownerFile });

@@ -30,7 +30,7 @@ function setup(overrides: Partial<SocialDirectorDeps> = {}) {
   const lock = new LockStore();
   const sleep = new SleepStore();
   const messages: SocialMessage[] = [];
-  const says: { petId: string; data: unknown }[] = [];
+  const says: { petId: string; leaf: string; data: unknown }[] = [];
   const speakers: string[] = [];
   const memory: SocialMemoryApi = {
     recentFor: async () => [],
@@ -58,7 +58,7 @@ function setup(overrides: Partial<SocialDirectorDeps> = {}) {
     },
     lock,
     sleep,
-    state: { writePet: (petId, _leaf, data) => says.push({ petId, data }) },
+    state: { writePet: (petId, leaf, data) => says.push({ petId, leaf: String(leaf), data }) },
     log: { warn() {} },
     now: () => 1000,
     random: () => 0,
@@ -264,6 +264,46 @@ test('主人在同一次生成期间连续发言按 FIFO 各得到一次回应',
     messages.filter((message) => message.speakerType === 'owner').map((message) => message.responseStatus),
     ['answered', 'answered'],
   );
+});
+
+test('话题会话把快照传给生成器，并按白名单同步动作', async () => {
+  const foodTopic = {
+    id: 'food',
+    title: '周末吃什么',
+    keywords: ['美食', '零食'],
+    opener: '想吃点什么？',
+    followUps: ['喜欢什么口味'],
+    conflictKeywords: ['不要'],
+  };
+  const members = ['a', 'b'].map((id) => ({
+    ...pet(id),
+    conf: {
+      whisperPrompt: id === 'a' ? '喜欢美食' : '喜欢零食',
+      animations: { clicks: ['点击回应-开心跃动'] },
+    },
+    pet: { id },
+  }));
+  let topicSeen: unknown;
+  const { director, messages, says } = setup({
+    readConfig: () => ({
+      ...config,
+      participantIds: ['a', 'b'],
+      topics: [foodTopic],
+      groupSize: { min: 2, max: 2 },
+    }),
+    readParticipants: () => members,
+    generate: async ({ topic }) => {
+      topicSeen = topic;
+      return { ok: true, text: '太开心啦！' };
+    },
+  });
+  const result = await director.start('a');
+  assert.equal(result.ok, true);
+  assert.equal((topicSeen as { title: string } | undefined)?.title, '周末吃什么');
+  assert.equal(messages[0]?.topic?.title, '周末吃什么');
+  const anim = says.find((item) => item.leaf === 'anim');
+  assert.equal(anim?.petId, 'a');
+  assert.deepEqual(anim?.data, { name: '点击回应-开心跃动' });
 });
 
 test('主人退出后排队消息保留为未回应，不再补生成', async () => {

@@ -57,6 +57,37 @@ test('生成使用人设和空图片动作池，不把社交内容写成主人�
   assert.equal(captured.history[2]?.content, '可可：很好呀！');
 });
 
+test('话题快照进入生成上下文，模型仍只收到空动作图片池', async () => {
+  let captured: ChatGenerateInput | undefined;
+  const generate = async (input: ChatGenerateInput): Promise<ChatGenerateResult> => {
+    captured = input;
+    return { ok: true, text: '围绕话题回应一句' };
+  };
+  const topic = {
+    topicId: 'food',
+    title: '周末吃什么',
+    opener: '想吃点什么？',
+    stage: 'followup' as const,
+    usedFollowUps: ['喜欢什么口味'],
+    currentFollowUp: '要不要换餐厅',
+  };
+  await generateSocialTurn({
+    ctx: {} as ChatGenerateInput['ctx'],
+    speaker: a,
+    participants: [a, b],
+    messages: history,
+    maxTextChars: 80,
+    topic,
+    generate,
+  });
+  assert.ok(captured);
+  assert.match(captured.system, /周末吃什么/);
+  assert.match(captured.system, /追问/);
+  assert.match(captured.system, /要不要换餐厅/);
+  assert.deepEqual(captured.pool, []);
+  assert.deepEqual(captured.actions, []);
+});
+
 test('多人连续发言与主人消息合并为有序 user 历史', () => {
   const c = pet('c', '团子', '安静');
   const messages: SocialMessage[] = [

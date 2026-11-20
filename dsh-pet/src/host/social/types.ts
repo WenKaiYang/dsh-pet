@@ -3,6 +3,29 @@
  * @module dsh-pet/src/host/social/types
  */
 
+/** 话题群聊阶段；首版一场只推进一个话题，不在运行中自动换题。 */
+export type SocialTopicStage = 'opening' | 'expansion' | 'followup' | 'conflict' | 'closing';
+
+/** 本地配置中的一张话题卡；非法字段在配置读取阶段剔除。 */
+export interface SocialTopicCard {
+  readonly id: string;
+  readonly title: string;
+  readonly keywords: readonly string[];
+  readonly opener: string;
+  readonly followUps: readonly string[];
+  readonly conflictKeywords: readonly string[];
+}
+
+/** 会话启动时固化的话题快照，历史回看不跟随后续配置变化。 */
+export interface SocialTopicSnapshot {
+  readonly topicId: string;
+  readonly title: string;
+  readonly opener: string;
+  readonly stage: SocialTopicStage;
+  readonly usedFollowUps: readonly string[];
+  readonly currentFollowUp?: string;
+}
+
 /** 一次会话使用的不可变配置快照。 */
 export interface SocialConfig {
   readonly version: 1;
@@ -17,6 +40,10 @@ export interface SocialConfig {
   readonly rounds: number;
   readonly showTimeline: boolean;
   readonly allowOwnerJoin: boolean;
+  /** 话题成员自动选择人数区间；缺省沿用第二阶段成员选择行为。 */
+  readonly groupSize?: { readonly min: number; readonly max: number };
+  /** 本地话题卡；缺省为空时不触发自动选题与阶段提示。 */
+  readonly topics?: readonly SocialTopicCard[];
 }
 
 /** 当前成品配置中的一名社交参与者。 */
@@ -48,6 +75,8 @@ export interface SocialMessage {
   readonly sessionStatus?: Exclude<SocialSessionStatus, 'active'>;
   /** 主人消息的回应状态；宠物消息缺省。 */
   readonly responseStatus?: 'pending' | 'answered' | 'unanswered';
+  /** 该句所属话题快照；旧消息缺省表示第二阶段双人/固定成员会话。 */
+  readonly topic?: SocialTopicSnapshot;
 }
 
 /** 会话结束状态；失败原因只进日志，不写进社交正文。 */
@@ -63,6 +92,7 @@ export interface SocialSessionSummary {
   readonly participantNames: Readonly<Record<string, string>>;
   readonly revision: number;
   readonly messageCount: number;
+  readonly topic?: SocialTopicSnapshot;
 }
 
 /** 活跃会话与历史会话共用的只读时间线。 */

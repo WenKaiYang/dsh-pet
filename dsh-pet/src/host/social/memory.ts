@@ -6,7 +6,27 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { LoggerLike } from '../log-file.ts';
-import type { SocialMessage, SocialSessionSnapshot, SocialSessionSummary } from './types.ts';
+import type { SocialMessage, SocialSessionSnapshot, SocialSessionSummary, SocialTopicSnapshot } from './types.ts';
+
+const TOPIC_STAGES = ['opening', 'expansion', 'followup', 'conflict', 'closing'] as const;
+
+function validTopic(value: unknown): value is SocialTopicSnapshot {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const t = value as Record<string, unknown>;
+  const strings = (key: string): boolean => t[key] === undefined || (typeof t[key] === 'string' && t[key] !== '');
+  return (
+    typeof t.topicId === 'string' &&
+    t.topicId !== '' &&
+    typeof t.title === 'string' &&
+    t.title !== '' &&
+    typeof t.opener === 'string' &&
+    t.opener !== '' &&
+    TOPIC_STAGES.includes(t.stage as (typeof TOPIC_STAGES)[number]) &&
+    (t.usedFollowUps === undefined ||
+      (Array.isArray(t.usedFollowUps) && t.usedFollowUps.every((item) => typeof item === 'string' && item !== ''))) &&
+    strings('currentFollowUp')
+  );
+}
 
 /** 文件里的一条有效记录；脏条目被丢弃，不让一条坏数据毁掉整份历史。 */
 function validMessage(value: unknown): value is SocialMessage {
@@ -32,7 +52,8 @@ function validMessage(value: unknown): value is SocialMessage {
     (m.responseStatus === undefined || ['pending', 'answered', 'unanswered'].includes(String(m.responseStatus))) &&
     (m.sessionStatus === undefined || ['finished', 'cancelled', 'failed'].includes(String(m.sessionStatus))) &&
     (m.participantIds === undefined ||
-      (Array.isArray(m.participantIds) && m.participantIds.every((id) => typeof id === 'string' && id !== '')))
+      (Array.isArray(m.participantIds) && m.participantIds.every((id) => typeof id === 'string' && id !== ''))) &&
+    (m.topic === undefined || validTopic(m.topic))
   );
 }
 
@@ -50,6 +71,14 @@ export function pruneSocialMessages(
 /** 排序后的成员集合作为跨场历史键，顺序变化不会换一间群聊。 */
 export function socialGroupKey(participantIds: readonly string[]): string {
   return JSON.stringify([...new Set(participantIds)].sort((a, b) => a.localeCompare(b)));
+}
+
+/** 历史会话取最新一条话题快照；旧记录缺省为 undefined。 */
+function latestTopic(messages: readonly SocialMessage[]): SocialTopicSnapshot | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].topic) return messages[index].topic;
+  }
+  return undefined;
 }
 
 /** 社交记忆存储；一个宿主实例一份，不在模块里建全局单例。 */
@@ -208,6 +237,7 @@ export class SocialMemoryStore {
           participantNames,
           revision: messages.length,
           messageCount: messages.length,
+          topic: latestTopic(messages),
         };
       });
     });
@@ -242,6 +272,7 @@ export class SocialMemoryStore {
         messages,
         ownerJoined: messages.some((message) => message.speakerType === 'owner'),
         allowOwnerJoin: false,
+        topic: latestTopic(messages),
       };
     });
   }

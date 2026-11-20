@@ -23,6 +23,14 @@ const STATUS_TEXT: Record<SocialSession['status'], string> = {
   failed: '已失败',
 };
 
+const TOPIC_STAGE_TEXT: Record<NonNullable<SocialSession['topic']>['stage'], string> = {
+  opening: '开场',
+  expansion: '展开',
+  followup: '追问',
+  conflict: '分歧',
+  closing: '收尾',
+};
+
 function errorText(error: unknown): string {
   const reason = error instanceof Error ? error.message : String(error);
   const labels: Record<string, string> = {
@@ -181,6 +189,9 @@ export function makeSocialPanel(rt: SocialPanelRuntime): () => ReactNS.ReactElem
             'div',
             { className: 'dsh-pet-social-meta' },
             h('span', null, STATUS_TEXT[snapshot.status]),
+            snapshot.topic
+              ? h('span', null, `· 话题：${snapshot.topic.title}（${TOPIC_STAGE_TEXT[snapshot.topic.stage]}）`)
+              : null,
             h('span', null, `· ${snapshot.messageCount} 条`),
             snapshot.currentSpeakerId
               ? h(

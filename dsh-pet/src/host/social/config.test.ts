@@ -33,6 +33,8 @@ test('合法配置逐字段读取', () => {
     rounds: 1,
     showTimeline: true,
     allowOwnerJoin: true,
+    groupSize: undefined,
+    topics: undefined,
   });
 });
 
@@ -73,4 +75,43 @@ test('群聊成员去重且不设置人数上限，旧配置仍走双人模式',
   assert.equal(conf.rounds, 3);
   assert.equal(conf.showTimeline, false);
   assert.equal(conf.allowOwnerJoin, false);
+});
+
+test('话题卡与人数区间被规范化，非法项单独忽略', () => {
+  writeFileSync(
+    file,
+    JSON.stringify({
+      enabled: true,
+      groupSize: { min: 2, max: 3 },
+      topics: [
+        {
+          id: 'food',
+          title: '吃什么',
+          keywords: ['美食'],
+          opener: '想吃点什么？',
+          followUps: ['口味'],
+          conflictKeywords: ['不要'],
+        },
+        { id: '', title: '', keywords: [] },
+        { id: 'food', title: '重复', keywords: ['重复'], opener: '重复' },
+      ],
+    }),
+  );
+  const conf = readSocialConfig(file);
+  assert.deepEqual(conf.groupSize, { min: 2, max: 3 });
+  assert.deepEqual(conf.topics, [
+    {
+      id: 'food',
+      title: '吃什么',
+      keywords: ['美食'],
+      opener: '想吃点什么？',
+      followUps: ['口味'],
+      conflictKeywords: ['不要'],
+    },
+  ]);
+});
+
+test('非法人数区间回退缺省，不夹取掩盖配置错误', () => {
+  writeFileSync(file, JSON.stringify({ enabled: true, groupSize: { min: 1, max: 1 } }));
+  assert.equal(readSocialConfig(file).groupSize, undefined);
 });

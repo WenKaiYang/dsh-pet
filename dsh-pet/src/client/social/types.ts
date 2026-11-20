@@ -1,6 +1,16 @@
 /** 群聊时间线的客户端传输类型；不依赖宿主 Node 模块。 */
 export type SocialSpeakerType = 'pet' | 'owner';
 export type SocialResponseStatus = 'pending' | 'answered' | 'unanswered';
+export type SocialTopicStage = 'opening' | 'expansion' | 'followup' | 'conflict' | 'closing';
+
+export interface SocialTopicSnapshot {
+  topicId: string;
+  title: string;
+  opener: string;
+  stage: SocialTopicStage;
+  usedFollowUps: string[];
+  currentFollowUp?: string;
+}
 
 export interface SocialMessage {
   sessionId: string;
@@ -11,6 +21,7 @@ export interface SocialMessage {
   text: string;
   ts: number;
   responseStatus?: SocialResponseStatus;
+  topic?: SocialTopicSnapshot;
 }
 
 export interface SocialSession {
@@ -26,4 +37,5 @@ export interface SocialSession {
   ownerJoined: boolean;
   allowOwnerJoin: boolean;
   currentSpeakerId?: string;
+  topic?: SocialTopicSnapshot;
 }

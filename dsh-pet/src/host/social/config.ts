@@ -4,7 +4,7 @@
  */
 import { readFileSync } from 'node:fs';
 import type { LoggerLike } from '../log-file.ts';
-import type { SocialConfig } from './types.ts';
+import type { SocialConfig, SocialTopicCard } from './types.ts';
 
 /** 默认关闭：未主动创建配置并启用时，不注册菜单也不产生模型调用。 */
 export const DEFAULT_SOCIAL_CONFIG: SocialConfig = {
@@ -17,6 +17,8 @@ export const DEFAULT_SOCIAL_CONFIG: SocialConfig = {
   rounds: 1,
   showTimeline: true,
   allowOwnerJoin: true,
+  groupSize: undefined,
+  topics: undefined,
 };
 
 /** 读取一个整数字段；非法值回默认，不用夹取掩盖配置错误。 */
@@ -59,6 +61,76 @@ function booleanField(raw: Record<string, unknown>, key: 'showTimeline' | 'allow
   return raw[key] === undefined ? DEFAULT_SOCIAL_CONFIG[key] : raw[key] === true;
 }
 
+function stringList(value: unknown, limit: number): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const text = item.trim();
+    if (text && !out.includes(text)) out.push(text);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/** 归一化一张话题卡；缺标题、开场白或关键词时返回 null。 */
+export function normalizeTopicCard(raw: unknown, index: number): SocialTopicCard | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const card = raw as Record<string, unknown>;
+  const id = typeof card.id === 'string' && card.id.trim() ? card.id.trim() : `topic-${index}`;
+  const title = typeof card.title === 'string' ? card.title.trim() : '';
+  const opener = typeof card.opener === 'string' ? card.opener.trim() : '';
+  const keywords = stringList(card.keywords, 10);
+  const followUps = stringList(card.followUps, 8);
+  const conflictKeywords = stringList(card.conflictKeywords, 8);
+  if (!title || !opener || keywords.length === 0) return null;
+  return { id, title, keywords, opener, followUps, conflictKeywords };
+}
+
+/** 读取并去重话题卡；非法卡单独剔除，不影响其余社交配置。 */
+function topicsField(
+  raw: Record<string, unknown>,
+  file: string,
+  log?: LoggerLike,
+): readonly SocialTopicCard[] | undefined {
+  if (raw.topics === undefined) return undefined;
+  if (!Array.isArray(raw.topics)) {
+    log?.warn?.(`[dsh-pet] 社交配置 topics 必须是数组，已忽略话题配置：${file}`);
+    return undefined;
+  }
+  const seen = new Set<string>();
+  const topics: SocialTopicCard[] = [];
+  raw.topics.forEach((item, index) => {
+    const card = normalizeTopicCard(item, index);
+    if (!card || seen.has(card.id)) return;
+    seen.add(card.id);
+    topics.push(card);
+  });
+  if (topics.length === 0) {
+    log?.warn?.(`[dsh-pet] 社交配置 topics 没有可用话题卡，已忽略：${file}`);
+    return undefined;
+  }
+  return topics;
+}
+
+/** 成员人数区间；min 至少 2，max 不小于 min，非法时缺省。 */
+function groupSizeField(raw: Record<string, unknown>, file: string, log?: LoggerLike): SocialConfig['groupSize'] {
+  if (raw.groupSize === undefined) return undefined;
+  const value = raw.groupSize;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    log?.warn?.(`[dsh-pet] 社交配置 groupSize 必须是对象，已忽略：${file}`);
+    return undefined;
+  }
+  const group = value as Record<string, unknown>;
+  const min = typeof group.min === 'number' && Number.isInteger(group.min) ? group.min : NaN;
+  const max = typeof group.max === 'number' && Number.isInteger(group.max) ? group.max : NaN;
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min < 2 || max > 8 || max < min) {
+    log?.warn?.(`[dsh-pet] 社交配置 groupSize 必须满足 2 ≤ min ≤ max ≤ 8，已忽略：${file}`);
+    return undefined;
+  }
+  return { min, max };
+}
+
 /** 读取社交配置；文件不存在 = 全默认，JSON 或根结构损坏 = 全默认。 */
 export function readSocialConfig(file: string, log?: LoggerLike): SocialConfig {
   let raw: string;
@@ -96,5 +168,7 @@ export function readSocialConfig(file: string, log?: LoggerLike): SocialConfig {
     rounds: integerField(value, 'rounds', 1, 8, file, log),
     showTimeline: booleanField(value, 'showTimeline'),
     allowOwnerJoin: booleanField(value, 'allowOwnerJoin'),
+    groupSize: groupSizeField(value, file, log),
+    topics: topicsField(value, file, log),
   };
 }

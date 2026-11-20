@@ -112,6 +112,10 @@ class PetSprite {
       this.chatMount.close();
       this.chatMount = null;
     }
+    if (this.socialMount) {
+      this.socialMount.close();
+      this.socialMount = null;
+    }
     this.closeMenu();
     this.stopThrow();
     this.stopDragFollow();

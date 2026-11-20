@@ -16,6 +16,7 @@ import { mountBaifan } from './baifan.ts';
 import { makeBaifanLayer } from './baifan/layer.ts';
 import { installCommandFaces, type CommandFace, type CommandUiLike } from './command-faces.ts';
 import { installSectionNavIcon } from './nav-icon.ts';
+import { registerPetSocialTab } from './social/register.ts';
 import { registerPetChatTab, openPetChatTab } from './chat/register.ts';
 import { PET_CHAT_COMMAND_ID, registerPetChatShortcut } from './chat/shortcut.ts';
 import { dicts as chatDicts, NS as CHAT_NS } from './chat/locales/index.ts';
@@ -245,6 +246,16 @@ export function makeFactory(): (require: (mod: string) => any) => any {
           return () => {};
         }
       }, 'dsh-pet: sidebar chat tab');
+
+      // 群聊与主人私聊共用右栏宿主，但状态、接口与样式完全独立。
+      ctx.effect(() => {
+        try {
+          return registerPetSocialTab(ctx, { h, useState, useEffect, useRef });
+        } catch (error) {
+          console.error('[dsh-pet] 右侧栏群聊面板注册失败（已忽略，不影响启动）：', error);
+          return () => {};
+        }
+      }, 'dsh-pet: sidebar social tab');
     }
 
     module.exports = { apply, inject, name };

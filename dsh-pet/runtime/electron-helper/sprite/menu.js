@@ -105,6 +105,7 @@ Object.assign(PetSprite.prototype, {
       // 第三方菜单项：只把 (owner, label) 交给宿主，具体做什么由注册方自己查 /menu/events。
       // 带上宠物 id——同一条菜单项在不同宠物上被点，注册方要能分辨是哪只。
       if (leaf.owner) {
+        if (leaf.owner === 'pet-social' && leaf.label === '查看群聊') this.toggleSocial();
         S.postAction(BASE + '/menu/click', { owner: leaf.owner, label: leaf.label, pet: this.pet.id }).catch(() => {
           /* 上报失败不影响本地：注册方下次轮询自然拿不到这次触发 */
         });
@@ -320,12 +321,37 @@ Object.assign(PetSprite.prototype, {
         this.chatOpen = false;
         window.__dshPetDebug.chatOpen = false;
         this.syncInputBusy(); // 弹窗关：交还常规判定（菜单还开着的话仍保持忙）
-        if (!this.menuOpen) this.setInteractive(false); // 无菜单时恢复命中区穿透
+        if (!this.menuOpen && !this.socialOpen && !this.todoOpen) this.setInteractive(false); // 无其他面板时恢复命中区穿透
       },
     });
     this.chatMount = m;
     this.chatOpen = true; // 穿透守卫：弹窗期间整窗保持可交互
     window.__dshPetDebug.chatOpen = true;
+    this.syncInputBusy();
+    this.setInteractive(true);
+  },
+
+  /** 群聊弹窗与网页右栏共用 /social 数据，桌面只负责挂载和窗口命中区。 */
+  toggleSocial() {
+    if (this.socialMount) {
+      this.socialMount.close();
+      return;
+    }
+    this.socialMount = S.mountSocialDialog({
+      baseUrl: BASE + '/social',
+      x: Math.max(4, this.hit.getBoundingClientRect().right + 6),
+      y: Math.max(4, this.hit.getBoundingClientRect().top + 6),
+      clamp: this.visibleClampRect(),
+      onClose: () => {
+        this.socialMount = null;
+        this.socialOpen = false;
+        window.__dshPetDebug.socialOpen = false;
+        this.syncInputBusy();
+        if (!this.menuOpen && !this.chatOpen && !this.todoOpen) this.setInteractive(false);
+      },
+    });
+    this.socialOpen = true;
+    window.__dshPetDebug.socialOpen = true;
     this.syncInputBusy();
     this.setInteractive(true);
   },
@@ -374,7 +400,7 @@ Object.assign(PetSprite.prototype, {
     this.todoOpen = false;
     window.__dshPetDebug.todoOpen = false;
     this.renderBubble();
-    if (!this.menuOpen && !this.chatOpen) this.setInteractive(false);
+    if (!this.menuOpen && !this.chatOpen && !this.socialOpen) this.setInteractive(false);
   },
 
   // 「回到初始位置」菜单：停掉漫游/移动，清掉会话位置，回到配置角落

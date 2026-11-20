@@ -244,6 +244,7 @@ Object.assign(PetSprite.prototype, {
       this.dragState.active ||
       this.menuOpen ||
       this.chatOpen ||
+      this.socialOpen ||
       this.todoOpen ||
       this.balanceClickable() ||
       this.workClickable() ||
@@ -291,7 +292,9 @@ Object.assign(PetSprite.prototype, {
     const rects = [];
     // 控件矩形 = 主进程允许接收点击的区域，矩形外继续穿透。可点的余额气泡悬在余量区，不登记就点不到。
     const controls = [
-      ...document.querySelectorAll('.dsh-pet-menu-column, .dsh-pet-chat, .dsh-pet-todo, .pet-bubble.is-clickable'),
+      ...document.querySelectorAll(
+        '.dsh-pet-menu-column, .dsh-pet-chat, .dsh-pet-social-dialog, .dsh-pet-todo, .pet-bubble.is-clickable',
+      ),
     ];
     for (const el of this.inputRegionElements) {
       if (!controls.includes(el)) {
@@ -343,7 +346,7 @@ Object.assign(PetSprite.prototype, {
       return;
     }
     // 右键菜单/对话弹窗/待办面板开启：整窗保持可交互，关闭后恢复命中区判定
-    if (this.menuOpen || this.chatOpen || this.todoOpen) {
+    if (this.menuOpen || this.chatOpen || this.socialOpen || this.todoOpen) {
       this.syncInputRegions(); // 级联菜单按悬停增减面板，及时更新占用区域
       this.setInteractive(true);
       this.setTip(false); // 菜单/弹窗期间提示让位，不跟浮层抢注意力
